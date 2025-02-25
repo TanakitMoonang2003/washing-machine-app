@@ -21,24 +21,52 @@ const LaundrySystem = () => {
   
   // Selected customer
   const [selectedCustomer, setSelectedCustomer] = useState(1);
-
+  
   // LINE notification history
   const [notifications, setNotifications] = useState([]);
-
+  
+  // ติดตามสถานะการแจ้งเตือนของแต่ละเครื่อง
+  const [notificationStatus, setNotificationStatus] = useState({});
+  
   // Timer effect - uses real minutes now
   useEffect(() => {
     const timer = setInterval(() => {
       setMachines(prevMachines => {
         return prevMachines.map(machine => {
           if (machine.status === "ไม่ว่าง" && machine.timeLeft > 0) {
-            const newTimeLeft = machine.timeLeft - (1 / 60); // ลดทีละ 1 วินาที (Demo)
+            // Decrease by 1 minute (60000 ms / 60000 ms = 1 min)
+            // For demo display, we'll decrease by 1/60 minutes (1 second) 
+            const newTimeLeft = machine.timeLeft - (1/60);
             
-            if (Math.ceil(machine.timeLeft) === 1 && Math.ceil(newTimeLeft) < 1) {
-              addLocalNotification(`${machine.name} เหลือเวลา 1 นาที`);
+            // สร้างสถานะปัจจุบันของเครื่อง
+            const currentStatus = notificationStatus[machine.id] || {};
+            
+            // เงื่อนไขสำหรับการแจ้งเตือนเมื่อเวลาน้อยกว่า 1 นาที
+            if (newTimeLeft < 1 && newTimeLeft > 0 && !currentStatus.lessThanOneMin) {
+              addLocalNotification(`${machine.name}เหลือเวลาน้อยกว่า 1 นาที`);
+              
+              // อัปเดตสถานะการแจ้งเตือน
+              setNotificationStatus(prev => ({
+                ...prev,
+                [machine.id]: {
+                  ...prev[machine.id],
+                  lessThanOneMin: true
+                }
+              }));
             }
-
+            
+            // ลบเงื่อนไขการแจ้งเตือนเมื่อเหลือ 1 นาทีพอดี เพื่อหลีกเลี่ยงการแจ้งเตือนซ้ำซ้อน
+            
+            // If time is up, set machine to available
             if (newTimeLeft <= 0) {
-              addLocalNotification(`${machine.name} ซักเสร็จแล้ว`);
+              addLocalNotification(`${machine.name}ซักเสร็จแล้ว`);
+              
+              // รีเซ็ตสถานะการแจ้งเตือน
+              setNotificationStatus(prev => ({
+                ...prev,
+                [machine.id]: {}
+              }));
+              
               return { ...machine, timeLeft: 0, status: "ว่าง" };
             }
             
@@ -47,12 +75,12 @@ const LaundrySystem = () => {
           return machine;
         });
       });
-    }, 1000);
+    }, 1000); // Update every second (for demo purposes)
     
     return () => clearInterval(timer);
-  }, []);
+  }, [notificationStatus]); // เพิ่ม dependency
   
-  // Add notification to local state
+  // Add notification to local state only - no API calls
   const addLocalNotification = (message) => {
     console.log("Adding local notification:", message);
     setNotifications(prev => [
@@ -60,60 +88,51 @@ const LaundrySystem = () => {
       { id: Date.now(), message, time: new Date().toLocaleTimeString() }
     ]);
   };
-
-  // เติมเหรียญให้ลูกค้า
-  const handleTopUp = (customerId, amount) => {
-    setCustomers(prevCustomers => 
-      prevCustomers.map(customer => 
-        customer.id === customerId 
-          ? { ...customer, coins: customer.coins + amount }
-          : customer
-      )
-    );
-  };
-
-  // ใช้เหรียญเริ่มซักผ้า
+  
+  // Insert coins and start machine
   const insertCoins = (machineId) => {
     const machine = machines.find(m => m.id === machineId);
     const customer = customers.find(c => c.id === selectedCustomer);
-
-    if (machine.status === "ว่าง") {
-      if (customer.coins >= 10) {
-        // หักเหรียญลูกค้า
-        setCustomers(customers.map(c => 
-          c.id === selectedCustomer ? { ...c, coins: c.coins - 10 } : c
-        ));
-
-        // เริ่มการซัก (ตั้งเวลาซัก 5 นาที)
-        setMachines(machines.map(m => 
-          m.id === machineId ? { ...m, status: "ไม่ว่าง", timeLeft: 5, originalTime: 5 } : m
-        ));
-
-        addLocalNotification(`${customer.name} เริ่มใช้งาน ${machine.name} แล้ว`);
-      } else {
-        addLocalNotification(`${customer.name} เหรียญไม่พอ กรุณาเติมเหรียญ`);
-      }
+    
+    if (machine.status === "ว่าง" && customer.coins >= 10) {
+      // Update customer coins
+      setCustomers(customers.map(c => 
+        c.id === selectedCustomer ? { ...c, coins: c.coins - 10 } : c
+      ));
+      
+      // รีเซ็ตสถานะการแจ้งเตือนเมื่อเริ่มใช้งานเครื่องใหม่
+      setNotificationStatus(prev => ({
+        ...prev,
+        [machineId]: {}
+      }));
+      
+      // Start machine with user-specified time (5 minutes for this example)
+      setMachines(machines.map(m => 
+        m.id === machineId ? { ...m, status: "ไม่ว่าง", timeLeft: 5, originalTime: 5 } : m
+      ));
+      
+      addLocalNotification(`${customer.name} เริ่มใช้งาน ${machine.name} แล้ว`);
     }
   };
   
-  // แปลงเวลาให้เป็นนาที:วินาที
+  // Format time display (minutes:seconds)
   const formatTime = (minutes) => {
     const mins = Math.floor(minutes);
     const secs = Math.floor((minutes - mins) * 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
   
-  // ปุ่มทดสอบการแจ้งเตือน
+  // Test notification function
   const testNotification = () => {
     addLocalNotification("ทดสอบการแจ้งเตือน");
   };
-
+  
   return (
     <div className="laundry-system">
       <div className="header">
         <h1>ระบบเครื่องซักผ้าหยอดเหรียญ</h1>
       </div>
-
+      
       {/* Machine Status Section */}
       <div className="machine-container">
         {machines.map(machine => (
@@ -126,15 +145,14 @@ const LaundrySystem = () => {
           />
         ))}
       </div>
-
+      
       {/* Customer Selection */}
       <CustomerSelector
         customers={customers}
         selectedCustomer={selectedCustomer}
         onSelectCustomer={setSelectedCustomer}
-        onTopUp={handleTopUp} // เพิ่มฟังก์ชันเติมเหรียญ
       />
-
+      
       {/* Notification Test Button */}
       <div className="notification-test">
         <button 
@@ -147,10 +165,10 @@ const LaundrySystem = () => {
           หมายเหตุ: การแจ้งเตือนจะแสดงเฉพาะในหน้าเว็บนี้
         </p>
       </div>
-
+      
       {/* Notifications History */}
       <NotificationPanel notifications={notifications} />
-
+      
       {/* Information box about LINE integration */}
       <InfoBox />
     </div>
